@@ -8,7 +8,7 @@ machine LoadPlatformDescriptionFromString "button: Miscellaneous.Button @ gpioPo
 machine LoadPlatformDescriptionFromString "led: Miscellaneous.LED @ gpioPortA 5"
 machine LoadPlatformDescriptionFromString "gpioPortA: { 5 -> led@0 }"
 
-sysbus LoadELF @build/debug/stm32f103rb-app.elf
+sysbus LoadELF @build/debug/stm32f103rb-app
 
 showAnalyzer sysbus.usart2
-machine StartGdbServer 3334
+machine StartGdbServer 3333
