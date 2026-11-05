@@ -1,0 +1,14 @@
+:name: Nucleo F103RB
+using sysbus
+mach create "nucleo"
+machine LoadPlatformDescription @platforms/cpus/stm32f103.repl
+
+# Nucleo-Board-Elemente selbst ergänzen: Taster B1 (PC13) und LED LD2 (PA5)
+machine LoadPlatformDescriptionFromString "button: Miscellaneous.Button @ gpioPortC 13 { IRQ -> gpioPortC@13 }"
+machine LoadPlatformDescriptionFromString "led: Miscellaneous.LED @ gpioPortA 5"
+machine LoadPlatformDescriptionFromString "gpioPortA: { 5 -> led@0 }"
+
+sysbus LoadELF @build/debug/stm32f103rb-app.elf
+
+showAnalyzer sysbus.usart2
+machine StartGdbServer 3334

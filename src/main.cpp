@@ -41,14 +41,19 @@ extern "C" uint8_t _stack_top;
 extern "C" uint8_t _stack_limit;
 extern "C" void *_sbrk(ptrdiff_t increment);
 
-extern "C" void sys_tick_handler(void)
+extern "C" void SysTick_Handler(void)
 {
     system_millis = system_millis + 1;
 }
 
 void clock_setup()
 {
-    rcc_clock_setup_pll(&rcc_hse_configs[RCC_CLOCK_HSE8_72MHZ]);
+    /*
+     * Renode models the HSE/PLL path less reliably than HSI for the F103.
+     * Using the HSI-driven PLL setup keeps the startup deterministic in the
+     * emulator while still running the MCU at a useful clock rate.
+     */
+    rcc_clock_setup_pll(&rcc_hsi_configs[RCC_CLOCK_HSI_48MHZ]);
     rcc_periph_clock_enable(RCC_GPIOA);
     rcc_periph_clock_enable(RCC_USART2);
 }
@@ -74,7 +79,7 @@ void uart_setup()
 void systick_setup()
 {
     systick_set_clocksource(STK_CSR_CLKSOURCE_AHB_DIV8);
-    systick_set_reload(9000 - 1); // 72 MHz / 8 / 9000 = 1 kHz
+    systick_set_reload(6000U - 1U); // 48 MHz / 8 / 6000 = 1 kHz
     systick_interrupt_enable();
     systick_counter_enable();
 }

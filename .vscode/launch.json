@@ -2,18 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "STM32F103RB Debug (OpenOCD)",
+      "name": "STM32F103RB Debug (Renode)",
       "type": "cortex-debug",
       "request": "launch",
+      "servertype": "external",
+      "gdbTarget": "localhost:3334",
+      "executable": "${workspaceFolder}/build/debug/stm32f103rb-app.elf",
       "cwd": "${workspaceFolder}",
-      "servertype": "openocd",
-      "configFiles": [
-        "board/st_nucleo_f103rb.cfg"
-      ],
-      "executable": "${command:cmake.launchTargetPath}",
-      "device": "STM32F103RBTx",
-      "runToEntryPoint": "main",
-      "preLaunchTask": "CMake: build"
+      "runToEntryPoint": "main"
     }
   ]
 }
