@@ -65,9 +65,10 @@ target_link_libraries(${TARGET_NAME}
 add_dependencies(${TARGET_NAME} libopencm3_build)
 
 add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${TARGET_NAME}> ${TARGET_NAME}.elf
     COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${TARGET_NAME}> ${TARGET_NAME}.hex
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${TARGET_NAME}> ${TARGET_NAME}.bin
-    COMMENT "Generating HEX and BIN artifacts"
+    COMMENT "Generating ELF, HEX and BIN artifacts"
 )
 
 add_custom_target(flash
