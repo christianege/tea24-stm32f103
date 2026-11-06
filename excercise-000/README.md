@@ -48,7 +48,7 @@ Sie arbeiten mit **drei Terminals** gleichzeitig. Das ist am Anfang ungewohnt, a
 |---|---|---|
 | **Terminal 1** | `renode` | Der „virtuelle Mikrocontroller". Hier laufen Renode-Befehle. |
 | **Terminal 2** | `gdb-multiarch` | Der Debugger. Hier steuern Sie das Programm. |
-| **Terminal 3** | normale Shell | Für `nm`, `size`, `objdump`, `tail -f` usw. |
+| **Terminal 3** | normale Shell | Für `nm`, `size`, `objdump` usw. |
 
 In VS Code öffnen Sie weitere Terminals über das Plus-Symbol im Terminal-Fenster (oder `Terminal → New Terminal`).
 
@@ -71,7 +71,7 @@ Ein **Mikrocontroller** (hier: STM32F103RB mit einem ARM-Cortex-M3-Kern) hat **k
 - **Host** = der Rechner, auf dem Sie entwickeln (Devcontainer, x86 oder ARM64).
 - **Target** = der Rechner, auf dem das Programm laufen soll (STM32F103, ARM Cortex-M3).
 
-Der normale `gcc` erzeugt Code für den Host. Wir brauchen einen **Cross-Compiler**, der Code für das Target erzeugt. Er heißt `arm-none-eabi-gcc`. Alle Hilfswerkzeuge (`size`, `nm`, `objdump`, `gdb`, …) gibt es ebenfalls mit diesem Präfix, z. B. `arm-none-eabi-nm`.
+Der normale `gcc` erzeugt Code für den Host. Wir brauchen einen **Cross-Compiler**, der Code für das Target erzeugt. Er heißt `arm-none-eabi-gcc`. Die Hilfswerkzeuge (`size`, `nm`, `objdump`, …) gibt es ebenfalls mit diesem Präfix, z. B. `arm-none-eabi-nm`. Eine Ausnahme ist der Debugger: Im Devcontainer heißt er `gdb-multiarch` (ein GDB, der mehrere Prozessorarchitekturen versteht, u. a. ARM).
 
 ### Was ist Renode?
 
@@ -323,7 +323,7 @@ sysbus.cpu SP
 
 ### 2.4 Die UART-Ausgabe sichtbar machen (optional, aber empfohlen)
 
-Die Firmware sendet Meldungen über **USART2**. Ohne grafische Oberfläche müssen wir die Ausgabe in eine Datei umleiten – und zwar **bevor** das Programm läuft. Im Renode-Prompt:
+Alle Messungen in dieser Aufgabe machen Sie mit GDB; die UART-Ausgabe brauchen Sie dafür **nicht**. Wenn Sie trotzdem neugierig sind, was die Firmware sendet: Sie sendet Meldungen über **USART2**. Ohne grafische Oberfläche müssen Sie die Ausgabe in eine Datei umleiten – und zwar **bevor** das Programm läuft. Im Renode-Prompt:
 
 ```
 sysbus.usart2 CreateFileBackend @/tmp/usart2.log true
@@ -349,7 +349,7 @@ Terminal 2 (Projekt-Hauptverzeichnis):
 gdb-multiarch build/debug/stm32f103rb-app.elf
 ```
 
-Das Argument sorgt dafür, dass GDB die **Symbole** der ELF-Datei einliest (Namen, Typen, Quelltextzeilen). Mit dem Target hat GDB noch keine Verbindung. Diese stellen Sie jetzt her:
+Das Argument sorgt dafür, dass GDB die **Symbole** der ELF-Datei einliest (Namen, Typen, Quelltextzeilen). Die Architektur (ARM) erkennt `gdb-multiarch` dabei selbst aus der ELF-Datei. Mit dem Target hat GDB noch keine Verbindung. Diese stellen Sie jetzt her:
 
 ```
 (gdb) target remote localhost:3333
@@ -511,7 +511,7 @@ Mit `monitor` schickt GDB einen Befehl **an den Monitor von Renode** weiter, ohn
 
 Renode läuft weiter. Sie können sich mit `target remote localhost:3333` erneut verbinden. Zum vollständigen Beenden wechseln Sie in Terminal 1 und tippen `quit`.
 
-**Aufgabe 3:** Setzen Sie einen Breakpoint auf `main`, lassen Sie das Programm laufen (`continue`) und führen Sie mit `next` einige Zeilen aus. Lesen Sie mit `print` mindestens zwei Variablen aus. Wenn UART-Ausgabe eingerichtet ist (Teil 2.4): Welche Meldungen erscheinen in `/tmp/usart2.log`?
+**Aufgabe 3:** Setzen Sie einen Breakpoint auf `main`, lassen Sie das Programm laufen (`continue`) und führen Sie mit `next` einige Zeilen aus. Lesen Sie mit `print` mindestens zwei Variablen aus. Optional (nur wenn Sie Teil 2.4 gemacht haben): Welche Meldungen erscheinen in `/tmp/usart2.log`?
 
 ---
 
@@ -1107,7 +1107,7 @@ Ein klassisches Verfahren: Der Startup-Code (oder Sie selbst in `main`) füllt d
 | Hilfe | `help` |
 | Bausteine anzeigen | `peripherals` |
 | PC / SP lesen | `sysbus.cpu PC`, `sysbus.cpu SP` |
-| UART in Datei | `sysbus.usart2 CreateFileBackend @/tmp/usart2.log true` |
+| UART in Datei (optional) | `sysbus.usart2 CreateFileBackend @/tmp/usart2.log true` |
 | Zurücksetzen | `machine Reset` |
 | Beenden | `quit` |
 
