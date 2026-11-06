@@ -45,7 +45,7 @@ Sie arbeiten mit **drei Terminals** gleichzeitig. Das ist am Anfang ungewohnt, a
 
 | Terminal | Programm | Aufgabe |
 |---|---|---|
-| **Terminal 1** | `renode` | Der „virtuelle Mikrocontroller". Hier laufen Renode-Befehle. |
+| **Terminal 1** | `renode` | Der „virtuelle Mikrocontroller". Hier laufen Renode-Befehle, und hier erscheinen Ausgaben der Firmware (UART, LED-Meldungen). |
 | **Terminal 2** | `gdb-multiarch` | Der Debugger. Hier steuern Sie das Programm. |
 | **Terminal 3** | normale Shell | Für `nm`, `size`, `objdump` usw. |
 
@@ -170,6 +170,7 @@ Stack und Heap wachsen aufeinander zu. Treffen sie sich, überschreiben sie sich
 
 ## Lernziele
 
+- Beim Durchsteppen von `main` mit GDB beobachten, was im emulierten Gerät passiert
 - Renode im Devcontainer starten und bedienen
 - Verstehen, wie GDB und Renode zusammenarbeiten (`target remote`, Port 3333)
 - Die wichtigsten GDB-Befehle sicher einsetzen und **genau erklären können, was sie tun**
@@ -177,6 +178,137 @@ Stack und Heap wachsen aufeinander zu. Treffen sie sich, überschreiben sie sich
 - Die Aufgaben des **Startup-Codes** (Vektortabelle, `.data` kopieren, `.bss` nullen, `main` aufrufen) nachvollziehen
 - Das Konzept des **Stacks** verstehen: Stack Pointer, Stack-Frame, Wachstumsrichtung, Rücksprungadresse, Stack Overflow
 - Die Funktionsweise von `_sbrk` und dem Heap beobachten
+
+---
+
+## Teil 0: Aufwärmen – Schritt für Schritt durch `main`
+
+Bevor wir etwas erklären, probieren Sie das Werkzeug aus. Sie lassen das Programm **zeilenweise** laufen und sehen in Renode, was jede Zeile bewirkt. Falls etwas unklar ist: Die ausführliche Erklärung aller Befehle folgt in Teil 2 und 3. Hier geht es nur ums Ausprobieren und Staunen.
+
+### 0.1 Alles starten
+
+**Terminal 3** (Projekt-Hauptverzeichnis): bauen
+
+```sh
+cmake --preset debug
+cmake --build --preset debug
+```
+
+**Terminal 1** (Projekt-Hauptverzeichnis): Renode starten
+
+```sh
+renode --disable-xwt --console renode/nucleo.resc
+```
+
+**Terminal 2** (Projekt-Hauptverzeichnis): Debugger starten und mit Renode verbinden
+
+```sh
+gdb-multiarch build/debug/stm32f103rb-app
+```
+
+```
+(gdb) target remote localhost:3333
+(gdb) break main
+(gdb) continue
+```
+
+GDB meldet jetzt etwas wie `Breakpoint 1, main () at src/main.cpp:...` und zeigt die **erste Zeile von `main`**. Die CPU steht dort still. In Terminal 1 ist (noch) nichts Neues passiert, denn das Programm hat noch nichts getan.
+
+### 0.2 Zeile für Zeile durch `main`
+
+Tippen Sie in Terminal 2 immer wieder:
+
+```
+(gdb) next
+```
+
+(Kurzform `n`. Mit **Enter** auf einer leeren Zeile wiederholt GDB den letzten Befehl. `next 3` führt drei Zeilen auf einmal aus.)
+
+Nach **jedem** `next` schauen Sie in **beide** Terminals:
+
+- In Terminal 2: Welche Zeile ist jetzt dran?
+- In Terminal 1 (Renode): Ist etwas Neues erschienen?
+
+Zwischendurch können Sie Werte ansehen:
+
+```
+(gdb) print g_bss_counter
+(gdb) print g_data_counter
+(gdb) print/x g_data_counter
+(gdb) print/x g_bss_buffer[0]
+```
+
+Was Sie ungefähr erwarten können:
+
+| Zeile in `main` | Was Sie beobachten können |
+|---|---|
+| `g_bss_counter = g_bss_counter + 1U;` | `g_bss_counter` wechselt von `0` auf `1`. In Renode noch nichts. |
+| `g_data_counter = g_data_counter + 1U;` | `g_data_counter` wird um eins größer (`0x12345678` auf `0x12345679`). |
+| `g_bss_buffer[0] = 0x42U;` | `print/x g_bss_buffer[0]` zeigt jetzt `0x42`. |
+| `clock_setup();` `gpio_setup();` `uart_setup();` `systick_setup();` | Die Hardware wird eingerichtet. In Renode sieht man evtl. nichts oder einzelne Log-Meldungen. |
+| `uart_write("STM32F103RB startup OK\r\n");` | **Der Text erscheint in Terminal 1!** |
+| `print_memory_layout();` | Es erscheinen mehrere Zeilen mit Adressen, `.data bytes`, `.bss bytes`, `heap capacity bytes`. |
+| `heap_demo();` | Die Zeile `heap alloc 64 bytes at 0x...` erscheint. |
+| in der Schleife: `gpio_toggle(...)` | Renode meldet vermutlich eine Zustandsänderung der LED (etwa `led: LED state changed to True`). |
+| in der Schleife: `uart_write("tick data=")` ... | Eine `tick`-Zeile mit den Zählern erscheint. |
+| `delay_ms(500);` | Dauert ein bisschen (die Firmware wartet auf den Timer-Interrupt) – dann geht es weiter. |
+
+> Ihr Renode-Log kann ein wenig anders aussehen. Wichtig ist: **Sie sehen Ursache und Wirkung** – eine Zeile Quelltext, und kurz darauf passiert etwas im emulierten Gerät.
+
+### 0.3 Hinein in Funktionen und wieder heraus
+
+`next` führt einen Funktionsaufruf als Ganzes aus. Wollen Sie **hineinschauen**, benutzen Sie `step`:
+
+```
+(gdb) step
+(gdb) bt
+(gdb) finish
+```
+
+| Befehl | Wirkung |
+|---|---|
+| `step` (`s`) | Wie `next`, springt aber **in** die Funktion hinein, wenn der Quelltext vorhanden ist. |
+| `bt` | Zeigt, in welcher Funktion Sie gerade sind und wer sie aufgerufen hat. |
+| `finish` | Läuft bis zum **Ende der aktuellen Funktion** und zeigt dort, wohin zurückgesprungen wurde. |
+
+Probieren Sie es zum Beispiel bei `uart_write(...)`: Mit `step` hinein, ein paar Mal `next` (Sie sehen, wie die Zeichen einzeln gesendet werden), dann `finish`.
+
+> **Vorsicht bei `delay_ms`:** Gehen Sie **nicht** mit vielen einzelnen `next`/`step` durch die Warteschleife in `delay_ms`. Sie wartet auf 500 Timer-Takte; zeilenweise dauert das ewig. Sind Sie doch hineingeraten: `finish`. Oder lassen Sie die CPU einfach laufen (siehe unten).
+
+### 0.4 Laufen lassen und wieder anhalten
+
+```
+(gdb) continue
+```
+
+Das Programm läuft jetzt frei. In Terminal 1 erscheinen laufend `tick`-Zeilen. Halten Sie es mit **Ctrl+C** in Terminal 2 an und fragen Sie:
+
+```
+(gdb) bt
+(gdb) info registers pc
+(gdb) info symbol $pc
+```
+
+**Fragen zum Aufwärmen:**
+
+- **0.1** Welche Zeile in `main` hat die erste Ausgabe in Terminal 1 verursacht?
+- **0.2** Wie oft mussten Sie `next` tippen, bis die LED zum ersten Mal umgeschaltet hat?
+- **0.3** Wo stand die CPU, als Sie mit Ctrl+C angehalten haben (`bt`)? Warum vermutlich dort?
+- **0.4** Wie sieht der Zeitablauf aus: Läuft die CPU nur, wenn Sie einen Befehl eingeben?
+
+### 0.5 Noch einmal von vorne
+
+Sie können jederzeit neu beginnen:
+
+```
+(gdb) monitor machine Reset
+(gdb) flushregs
+(gdb) continue
+```
+
+Der Breakpoint auf `main` bleibt erhalten. (Falls etwas hängt: In Terminal 1 `quit`, Renode neu starten, in GDB `target remote localhost:3333` erneut ausführen.)
+
+Wenn Sie ein Gefühl für `next`, `step`, `finish`, `continue` und die zwei Terminals haben, sind Sie bereit für den Rest.
 
 ---
 
@@ -302,7 +434,7 @@ machine StartGdbServer 3333
 | `LoadPlatformDescriptionFromString "button: ..."` | Ergänzt Bauteile, die **nicht im Chip, sondern auf dem Nucleo-Board** sitzen: den Taster B1 an Pin PC13. |
 | `LoadPlatformDescriptionFromString "led: ..."` und `"gpioPortA: { 5 -> led@0 }"` | Fügt die LED LD2 hinzu und verdrahtet sie mit Pin PA5 von Port A. |
 | `sysbus LoadELF @build/debug/stm32f103rb-app` | Schreibt das Programm in den emulierten Flash und setzt PC und SP auf die Werte aus der Vektortabelle. Der Pfad ist **relativ zum aktuellen Verzeichnis** – Renode deshalb immer im Projekt-Hauptverzeichnis starten! |
-| `showAnalyzer sysbus.usart2` | Öffnet ein Fenster für die UART-Ausgabe. Mit `--disable-xwt` (keine Oberfläche) gibt es kein Fenster, deshalb sehen Sie hier nichts. Das ist für diese Aufgabe in Ordnung. |
+| `showAnalyzer sysbus.usart2` | Zeigt die UART-Ausgabe der Firmware an. Mit `--console` und ohne grafische Oberfläche (`--disable-xwt`) erscheint sie direkt im Renode-Terminal statt in einem Fenster. |
 | `machine StartGdbServer 3333` | Öffnet den GDB-Server auf TCP-Port **3333**. |
 
 > **Beobachtung:** Das Script ruft **kein** `start` auf. Die emulierte CPU steht also still, bis GDB sie startet. Das ist genau das, was wir zum Debuggen wollen.
@@ -345,7 +477,7 @@ sysbus.cpu SP
 
 ### 2.4 Die UART-Ausgabe sichtbar machen (optional – für diese Aufgabe nicht nötig)
 
-Alle Messungen in dieser Aufgabe machen Sie mit GDB; die UART-Ausgabe brauchen Sie dafür **nicht**. Wenn Sie trotzdem neugierig sind, was die Firmware sendet: Sie sendet Meldungen über **USART2**. Ohne grafische Oberfläche müssen Sie die Ausgabe in eine Datei umleiten – und zwar **bevor** das Programm läuft. Im Renode-Prompt:
+Die UART-Ausgabe der Firmware (über **USART2**) sehen Sie bereits im Renode-Terminal (Zeile `showAnalyzer` im Script). Alle Messungen in dieser Aufgabe machen Sie mit GDB und brauchen die Datei daher nicht. Wer die Ausgabe trotzdem zusätzlich in eine Datei schreiben möchte (z. B. zum späteren Nachlesen), macht das **bevor** das Programm läuft. Im Renode-Prompt:
 
 ```
 sysbus.usart2 CreateFileBackend @/tmp/usart2.log true
@@ -1283,7 +1415,7 @@ Im Linker-Script steckt `*(.rodata*)` im Abschnitt `.text`. Trennen Sie das:
 | `No symbol "g_data_counter" in current context` | Die Variable steht im **anonymen Namespace** von `main.cpp` und ist nur dort sichtbar. In `main` anhalten oder den vollen Namen verwenden: `'(anonymous namespace)::g_data_counter'` (mit `set language c++`). Namen finden: `info variables g_`. |
 | `No symbol "xyz" in current context` (anderer Name) | Falscher Name oder GDB wurde ohne ELF-Datei gestartet. Namen mit `nm -C` prüfen. |
 | `<optimized out>` | Release-Build oder Variable im Register. Für diese Aufgabe den Debug-Build verwenden. |
-| Im Renode-Terminal erscheint kein UART-Fenster | Normal bei `--disable-xwt` (das Script ruft `showAnalyzer` auf). Die Aufgabe braucht es nicht. |
+| Keine UART-Ausgabe im Renode-Terminal | Steht `showAnalyzer sysbus.usart2` im Script? Läuft das Programm schon? (Die CPU steht still, bis GDB sie mit `continue` oder `next` bewegt.) |
 | Alte Werte nach Neubau | Renode läuft noch mit der alten ELF-Datei: Renode neu starten. |
 | `print _sdata` zeigt Unsinn | Linker-Symbol! Immer `print &_sdata` benutzen. |
 | Programm läuft „einfach durch" | Nach dem Neustart von GDB ist die CPU evtl. noch am Laufen: mit `Ctrl+C` anhalten oder `monitor machine Reset`. |
