@@ -13,13 +13,12 @@ git branch -a
 git switch main
 git fetch --all
 # create a new local branch based on exercise-000
-# (Branchnamen bitte an Ihre Vorlage anpassen)
-git switch -c solution-003 upstream/exercise-000
+git switch -c solution-000 upstream/exercise-000
 # perform changes
 git add src
 git commit -m "feat: solve exercise-000 stack and memory task"
 # push the changes to the cloud
-git push -u origin solution-003
+git push -u origin solution-000
 ```
 
 ## Programm kompilieren
@@ -191,17 +190,17 @@ cmake --build --preset debug
 ls -l build/debug
 ```
 
-Sie sehen u. a. diese Dateien (die genauen Namen können leicht abweichen):
+Sie sehen u. a. diese Dateien:
 
 | Datei | Bedeutung |
 |---|---|
-| `stm32f103rb-app.elf` | **ELF** = Programm + Symbolnamen + Debug-Informationen. **Diese Datei braucht der Debugger** und Renode. |
+| `stm32f103rb-app` (ohne Endung) | **ELF** = Programm + Symbolnamen + Debug-Informationen. **Diese Datei braucht der Debugger** und Renode. |
 | `stm32f103rb-app.hex` / `.bin` | Nur die reinen Bytes für den Flash-Speicher – ohne Namen und Debug-Infos. Für das Flashen auf echte Hardware. |
 
-Zur Vereinfachung legen wir eine Shell-Variable an (Dateiname bitte an `ls` anpassen):
+Beachten Sie: Die ELF-Datei hat hier **keine Endung** `.elf` – sie heißt einfach `stm32f103rb-app`. Zur Vereinfachung legen wir eine Shell-Variable an:
 
 ```sh
-ELF=build/debug/stm32f103rb-app.elf
+ELF=build/debug/stm32f103rb-app
 file $ELF
 ```
 
@@ -213,12 +212,20 @@ file $ELF
 # Größe der Abschnitte (Sections)
 arm-none-eabi-size --format=sysv $ELF
 
-# Alle Symbole, sortiert nach Adresse (-n), mit Größe (-S)
-arm-none-eabi-nm -S -n $ELF
+# Alle Symbole, sortiert nach Adresse (-n), mit Größe (-S), C++-Namen lesbar (-C)
+arm-none-eabi-nm -C -S -n $ELF
 
 # Adressen der Abschnitte: VMA = Adresse zur Laufzeit, LMA = Ladeadresse
 arm-none-eabi-objdump -h $ELF
 ```
+
+Suchen Sie nun gezielt die Variablen aus `src/main.cpp`:
+
+```sh
+arm-none-eabi-nm -C -S -n $ELF | grep -E "g_|kRodata|system_millis"
+```
+
+Sie sehen Namen wie `(anonymous namespace)::g_data_counter`. Der Grund: In `main.cpp` stehen alle Variablen in einem **anonymen Namespace** (`namespace { ... }`). Das ist in C++ die moderne Variante von `static` auf Dateiebene – also genau das *internal linkage* aus der letzten Aufgabe. Der Buchstabe in der zweiten Spalte verrät es: **Kleinbuchstaben** (`d`, `b`, `r`, `t`) bedeuten „lokales Symbol, nur in dieser Übersetzungseinheit sichtbar", Großbuchstaben (`D`, `B`, `R`, `T`) bedeuten „global sichtbar". Merken Sie sich zusätzlich: `d` = `.data`, `b` = `.bss`, `r` = Nur-Lese-Daten, `t`/`T` = Code.
 
 Was bedeuten die Spalten bei `objdump -h`?
 
@@ -227,7 +234,9 @@ Was bedeuten die Spalten bei `objdump -h`?
 | `VMA` | *Virtual Memory Address*: Wo liegt der Abschnitt, **wenn das Programm läuft**? |
 | `LMA` | *Load Memory Address*: Wo liegt der Abschnitt **im Flash-Abbild**? |
 
-**Frage 1.2:** Bei welchem Abschnitt sind VMA und LMA **verschieden**? Warum ist das genau bei diesem Abschnitt so? (Tipp: Was muss der Startup-Code mit ihm tun?)
+**Frage 1.2a:** Suchen Sie in der Ausgabe von `size`/`objdump -h` nach einem Abschnitt `.rodata`. Gibt es ihn? (Tipp: Er fehlt – lesen Sie im Linker-Script `ld/stm32f103rb.ld` nach, in welchen Abschnitt `*(.rodata*)` einsortiert wird. Dem gehen wir in Teil 4.3 nach.)
+
+**Frage 1.2b:** Bei welchem Abschnitt sind VMA und LMA **verschieden**? Warum ist das genau bei diesem Abschnitt so? (Tipp: Was muss der Startup-Code mit ihm tun?)
 
 ### 1.3 Die Vektortabelle
 
@@ -235,7 +244,7 @@ Ganz am Anfang des Flash (`0x0800_0000`) liegt die **Vektortabelle** (Abschnitt 
 
 | Wort | Adresse | Inhalt |
 |---|---|---|
-| 0 | `0x0800_0000` | **Initialer Stack Pointer** (Wert für SP) |
+| 0 | `0x0800_0000` | **Initialer Stack Pointer** (Wert für SP) – im Quelltext `&_estack` |
 | 1 | `0x0800_0004` | **Adresse des Reset-Handlers** (hier startet das Programm) |
 | 2 | `0x0800_0008` | NMI-Handler |
 | 3 | `0x0800_000C` | HardFault-Handler |
@@ -245,12 +254,12 @@ Ganz am Anfang des Flash (`0x0800_0000`) liegt die **Vektortabelle** (Abschnitt 
 arm-none-eabi-objdump -s -j .isr_vector $ELF | head
 ```
 
-Die Ausgabe zeigt Bytes in Hex. Der Cortex-M ist **Little Endian**: Das niederwertigste Byte steht zuerst. Beispiel: Die Bytes `00 50 00 20` ergeben den Wert `0x20005000`.
+Im Quelltext (`src/startup_stm32f103rb.c`) ist die Tabelle das Array `interrupt_vector`, das mit `__attribute__((section(".isr_vector")))` in diesen Abschnitt gelegt wird. Die Ausgabe zeigt Bytes in Hex. Der Cortex-M ist **Little Endian**: Das niederwertigste Byte steht zuerst. Beispiel: Die Bytes `00 50 00 20` ergeben den Wert `0x20005000`.
 
 **Aufgabe:** Lesen Sie Wort 0 und Wort 1 aus der Ausgabe ab und schreiben Sie die Werte (in der korrekten Byte-Reihenfolge) auf.
 
 **Frage 1.3:**
-- Wo im RAM liegt der Stack-Start (Wort 0)? Passt das zum Ende des RAMs?
+- Wo im RAM liegt der Stack-Start (Wort 0)? Passt das zum Ende des RAMs (`0x2000_0000` + 20 KiB, siehe Linker-Script)?
 - Wort 1 hat ein **ungerades** letztes Bit (z. B. `...A5`). Das ist kein Fehler: Das Bit 0 bedeutet „Thumb-Modus" (der Cortex-M kennt nur diesen). Die echte Adresse ist der Wert **minus 1**.
 
 ---
@@ -265,22 +274,35 @@ Wechseln Sie in Terminal 1 in das **Projekt-Hauptverzeichnis** und sehen Sie sic
 cat renode/nucleo.resc
 ```
 
-Es enthält sinngemäß Folgendes (Ihre Datei kann leicht abweichen):
+Es sieht so aus:
 
 ```
+:name: Nucleo F103RB
 using sysbus
 mach create "nucleo"
 machine LoadPlatformDescription @platforms/cpus/stm32f103.repl
-sysbus LoadELF @build/debug/stm32f103rb-app.elf
+
+# Nucleo-Board-Elemente selbst ergänzen: Taster B1 (PC13) und LED LD2 (PA5)
+machine LoadPlatformDescriptionFromString "button: Miscellaneous.Button @ gpioPortC 13 { IRQ -> gpioPortC@13 }"
+machine LoadPlatformDescriptionFromString "led: Miscellaneous.LED @ gpioPortA 5"
+machine LoadPlatformDescriptionFromString "gpioPortA: { 5 -> led@0 }"
+
+sysbus LoadELF @build/debug/stm32f103rb-app
+
+showAnalyzer sysbus.usart2
 machine StartGdbServer 3333
 ```
 
 | Zeile | Was passiert |
 |---|---|
+| `:name: ...` | Nur ein Name/Kommentar für das Script. |
 | `using sysbus` | Abkürzung: `sysbus.xyz` kann als `xyz` geschrieben werden. |
 | `mach create "nucleo"` | Legt eine neue, leere virtuelle Maschine an. |
-| `machine LoadPlatformDescription @...repl` | Baut die Hardware nach: CPU, Flash, RAM, UARTs, … |
-| `sysbus LoadELF @...elf` | Schreibt das Programm in den emulierten Flash und setzt Reset-Werte. |
+| `machine LoadPlatformDescription @...stm32f103.repl` | Baut die **Hardware des Chips** nach: CPU, Flash, RAM, UARTs, GPIO, … |
+| `LoadPlatformDescriptionFromString "button: ..."` | Ergänzt Bauteile, die **nicht im Chip, sondern auf dem Nucleo-Board** sitzen: den Taster B1 an Pin PC13. |
+| `LoadPlatformDescriptionFromString "led: ..."` und `"gpioPortA: { 5 -> led@0 }"` | Fügt die LED LD2 hinzu und verdrahtet sie mit Pin PA5 von Port A. |
+| `sysbus LoadELF @build/debug/stm32f103rb-app` | Schreibt das Programm in den emulierten Flash und setzt PC und SP auf die Werte aus der Vektortabelle. Der Pfad ist **relativ zum aktuellen Verzeichnis** – Renode deshalb immer im Projekt-Hauptverzeichnis starten! |
+| `showAnalyzer sysbus.usart2` | Öffnet ein Fenster für die UART-Ausgabe. Mit `--disable-xwt` (keine Oberfläche) gibt es kein Fenster, deshalb sehen Sie hier nichts. Das ist für diese Aufgabe in Ordnung. |
 | `machine StartGdbServer 3333` | Öffnet den GDB-Server auf TCP-Port **3333**. |
 
 > **Beobachtung:** Das Script ruft **kein** `start` auf. Die emulierte CPU steht also still, bis GDB sie startet. Das ist genau das, was wir zum Debuggen wollen.
@@ -313,15 +335,15 @@ sysbus.cpu SP
 | Befehl | Bedeutung |
 |---|---|
 | `help` | Listet alle verfügbaren Befehle. |
-| `peripherals` | Zeigt alle Bausteine der emulierten Maschine als Baum (CPU, `usart1`, `usart2`, `gpioPortA`, …). |
+| `peripherals` | Zeigt alle Bausteine der emulierten Maschine als Baum (CPU, `usart1`, `usart2`, `gpioPortA`, `led`, `button`, …). |
 | `sysbus.cpu PC` | Zeigt den aktuellen Wert des Program Counters. |
 | `sysbus.cpu SP` | Zeigt den aktuellen Wert des Stack Pointers. |
 | `start` / `pause` | CPU starten / anhalten. **Benutzen wir nicht – GDB übernimmt das.** |
 | `quit` | Beendet Renode. |
 
-**Frage 2.1:** Welchen Wert haben PC und SP direkt nach dem Start? Vergleichen Sie mit Wort 0 und Wort 1 der Vektortabelle aus Teil 1.3. Was fällt auf? (Tipp: Thumb-Bit!)
+**Frage 2.1:** Welchen Wert haben PC und SP direkt nach dem Start? (Erwartung für SP: `0x20005000`, das Ende des RAMs.) Vergleichen Sie mit Wort 0 und Wort 1 der Vektortabelle aus Teil 1.3. Was fällt auf? (Tipp: Thumb-Bit!)
 
-### 2.4 Die UART-Ausgabe sichtbar machen (optional, aber empfohlen)
+### 2.4 Die UART-Ausgabe sichtbar machen (optional – für diese Aufgabe nicht nötig)
 
 Alle Messungen in dieser Aufgabe machen Sie mit GDB; die UART-Ausgabe brauchen Sie dafür **nicht**. Wenn Sie trotzdem neugierig sind, was die Firmware sendet: Sie sendet Meldungen über **USART2**. Ohne grafische Oberfläche müssen Sie die Ausgabe in eine Datei umleiten – und zwar **bevor** das Programm läuft. Im Renode-Prompt:
 
@@ -335,7 +357,7 @@ In Terminal 3 können Sie die Ausgabe dann mitlesen:
 tail -f /tmp/usart2.log
 ```
 
-> Falls Ihre `nucleo.resc` bereits etwas Ähnliches enthält, überspringen Sie diesen Schritt. Falls `usart2` nicht gefunden wird, prüfen Sie die Namen mit `peripherals`.
+> Dieser Schritt bringt für die Aufgabe keinen Gewinn und kann komplett übersprungen werden. Falls `usart2` nicht gefunden wird, prüfen Sie die Namen mit `peripherals`.
 
 ---
 
@@ -346,7 +368,7 @@ tail -f /tmp/usart2.log
 Terminal 2 (Projekt-Hauptverzeichnis):
 
 ```sh
-gdb-multiarch build/debug/stm32f103rb-app.elf
+gdb-multiarch build/debug/stm32f103rb-app
 ```
 
 Das Argument sorgt dafür, dass GDB die **Symbole** der ELF-Datei einliest (Namen, Typen, Quelltextzeilen). Die Architektur (ARM) erkennt `gdb-multiarch` dabei selbst aus der ELF-Datei. Mit dem Target hat GDB noch keine Verbindung. Diese stellen Sie jetzt her:
@@ -367,6 +389,7 @@ Mit diesen Einstellungen wird die Arbeit angenehmer:
 (gdb) set pagination off
 (gdb) set print pretty on
 (gdb) set confirm off
+(gdb) set language c++
 ```
 
 | Befehl | Wirkung |
@@ -374,6 +397,7 @@ Mit diesen Einstellungen wird die Arbeit angenehmer:
 | `set pagination off` | Lange Ausgaben werden nicht seitenweise angehalten („--Mehr--"). |
 | `set print pretty on` | Structs werden mehrzeilig, lesbar ausgegeben. |
 | `set confirm off` | GDB fragt nicht mehr bei jeder Kleinigkeit nach. |
+| `set language c++` | GDB soll C++-Namen verstehen, z. B. `(anonymous namespace)::g_data_counter`. Wichtig, weil der Startup-Code in C geschrieben ist und GDB beim Halt dort sonst automatisch auf C umschaltet. |
 
 > **Tipp:** Schreiben Sie diese Zeilen in eine Datei `.gdbinit` im Projektverzeichnis (ggf. müssen Sie GDB mit `-x .gdbinit` starten oder `add-auto-load-safe-path` setzen). So sparen Sie sich das Tippen.
 
@@ -445,7 +469,11 @@ Wenn die CPU bei `main` hält, sehen Sie die Quelltextzeile. Nun können Sie sch
 | `x/i $pc` | – | Zeigt die Instruktion, die als Nächstes ausgeführt wird. |
 | `until` / `advance <ziel>` | `u` | Läuft bis zu einer Stelle; nützlich, um eine Schleife zu verlassen. |
 
+> **Hinweis – SysTick:** `main.cpp` richtet einen Timer-Interrupt (SysTick, 1 kHz) ein. Wenn Sie in `main` Schritt für Schritt vorgehen, kann es passieren, dass plötzlich `SysTick_Handler` erscheint. Das ist kein Fehler: Die CPU wurde von einem Interrupt unterbrochen. Mit `finish` (oder `continue`) kehren Sie zurück. Mehr dazu in Bonus 2.
+
 ### 3.4 Variablen und Speicher untersuchen
+
+Die folgenden Befehle setzen voraus, dass die CPU in `main` angehalten ist (`break main`, `continue`). Dann sehen Sie die Variablen aus `main.cpp` unter ihrem einfachen Namen.
 
 ```
 (gdb) print g_data_counter
@@ -469,7 +497,9 @@ Wenn die CPU bei `main` hält, sehen Sie die Quelltextzeile. Nun können Sie sch
 | `ptype <name>` | – | Zeigt den vollständigen Typ (Struct-Aufbau, Array-Länge). |
 | `watch <variable>` | – | **Watchpoint**: Die CPU hält an, sobald sich der Wert der Variablen ändert. |
 
-> **Hinweis:** Die Variablennamen `g_data_counter`, `g_bss_counter`, `g_bss_buffer` und `kRodataBanner` stammen aus der README des Projekts. Falls sie in Ihrer Version anders heißen, finden Sie die richtigen Namen mit `arm-none-eabi-nm -n $ELF` oder in `src/main.cpp`.
+> **Beobachtung:** `print g_data_counter` zeigt `305419896` – das ist `0x12345678` dezimal, der Startwert aus dem Quelltext. Mit `print/x` sehen Sie ihn in Hex.
+>
+> **Warum nur in `main`?** Die Variablen stehen in einem anonymen Namespace und sind nur in der Übersetzungseinheit `main.cpp` sichtbar. Hält die CPU woanders an (z. B. im Startup-Code, der in einer anderen Datei steht), findet GDB den kurzen Namen nicht. Dort brauchen Sie den vollen Namen in Hochkommas, z. B. `print '(anonymous namespace)::g_data_counter'`. Welche Namen es gibt, zeigt `info variables g_`.
 
 ### 3.5 Der Stack in GDB (Vorgeschmack)
 
@@ -521,6 +551,8 @@ Jetzt prüfen Sie, dass die Aussagen aus der README tatsächlich stimmen.
 
 ### 4.1 Der Befehl `info symbol`
 
+Halten Sie die CPU zuerst in `main` an (`break main`, `continue`).
+
 ```
 (gdb) info symbol &g_data_counter
 (gdb) info symbol &g_bss_counter
@@ -536,7 +568,9 @@ Jetzt prüfen Sie, dass die Aussagen aus der README tatsächlich stimmen.
 | `info address <symbol>` | Zeigt, wo ein Symbol gespeichert ist. |
 | `info files` | Listet alle Abschnitte der ELF-Datei mit ihren Adressbereichen. |
 
-> **Achtung beim Zeiger auf Literale:** `kRodataBanner` ist vermutlich ein Zeiger oder Array auf einen Text. Wenn es ein Zeiger ist, liegt der **Zeiger** in `.data`/`.rodata`, der **Text** aber in `.rodata`. Prüfen Sie beides mit `info symbol kRodataBanner` und `info symbol &kRodataBanner`.
+> **Hinweis zu `kRodataBanner`:** Es ist ein **Array** (`const char kRodataBanner[] = "..."`), kein Zeiger. Der Text liegt also direkt in der Variable, und `kRodataBanner` und `&kRodataBanner` ergeben dieselbe Adresse.
+>
+> **Überraschung:** GDB meldet für konstante Daten vermutlich `in section .text` – nicht `.rodata`! Das ist kein Fehler. Warum, klären wir in Teil 4.3.
 
 ### 4.2 Tabelle ausfüllen
 
@@ -547,12 +581,33 @@ Erstellen Sie diese Tabelle (in Ihrer Abgabe) und füllen Sie sie mit den echten
 | `g_data_counter` | | | |
 | `g_bss_counter` | | | |
 | `g_bss_buffer` | | | |
-| String aus `kRodataBanner` | | | |
+| String aus `kRodataBanner` | | | (Abschnitt laut GDB: ____ ) |
 | Funktion `main` | | | |
+| lokale Variable `stack_probe` in `print_memory_layout()` | | | (siehe Teil 6) |
+| statische Variable `current_heap_end` in `_sbrk()` | | | (siehe Teil 7) |
+
+Die Firmware gibt dieselben Adressen auch per UART aus (`print_memory_layout()` in `main.cpp`). Wenn Sie Teil 2.4 gemacht haben, können Sie Ihre GDB-Werte damit vergleichen.
 
 **Frage 4.1:** An welcher Adresse beginnt `.data`, und wo endet `.bss`? (Tipp: Die Linker-Symbole stehen in `nm`; siehe Teil 5.2.)
 
-**Frage 4.2:** Warum haben `.data` und `.bss` Adressen im RAM, `.rodata` und `.text` aber Adressen im Flash?
+**Frage 4.2:** Warum haben `.data` und `.bss` Adressen im RAM, konstante Daten und Code aber Adressen im Flash?
+
+### 4.3 Wo ist `.rodata` geblieben?
+
+Schauen Sie in das Linker-Script (`ld/stm32f103rb.ld`) in den Abschnitt `.text`. Dort steht neben `*(.text*)` auch `*(.rodata*)`. Der Linker packt also **alle konstanten Daten in den Ausgabe-Abschnitt `.text`**. Im fertigen Programm gibt es deshalb keinen eigenen Abschnitt `.rodata` mehr.
+
+In den **Objektdateien** (vor dem Linken) gibt es ihn aber noch. Sie können das nachprüfen:
+
+```sh
+find build/debug -name "main.cpp.o*"
+arm-none-eabi-size --format=sysv <gefundene Datei>
+```
+
+**Fragen:**
+
+- **4.3a** Welche Abschnitte hat die Objektdatei (`.text`, `.rodata...`, `.data`, `.bss`)? Wo ist Ihr Banner-Text?
+- **4.3b** Warum ist es für die Hardware egal, ob `.rodata` einen eigenen Abschnitt hat oder in `.text` steckt? (Beides liegt im Flash und wird nie verändert.)
+- **4.3c** Warum kann man trotzdem wünschen, `.rodata` getrennt zu haben? (Tipp: übersichtliche Größenstatistik, unterschiedliche Speicherbereiche, Speicherschutz.) Siehe Bonus 6.
 
 ---
 
@@ -586,10 +641,20 @@ Auf dem PC startet `main` „einfach so". Das stimmt nicht: Auch dort läuft vor
 Im Linker-Script stehen Symbole, die Anfang und Ende der Bereiche markieren. Der Startup-Code benutzt sie. Suchen Sie sie:
 
 ```sh
-arm-none-eabi-nm -n $ELF | grep -i -E "sidata|sdata|edata|sbss|ebss|stack|heap"
+arm-none-eabi-nm -n $ELF | grep -i -E "sidata|sdata|edata|sbss|ebss|estack|stack|heap|_end"
 ```
 
-Üblich sind Namen wie `_sidata` (Startwerte im Flash), `_sdata`/`_edata` (Anfang/Ende `.data` im RAM), `_sbss`/`_ebss` (Anfang/Ende `.bss`), `_stack_top`, `_heap_start`, `_heap_end`. Die genauen Namen stehen in `ld/stm32f103rb.ld`.
+In diesem Projekt heißen sie (siehe `ld/stm32f103rb.ld` und `src/startup_stm32f103rb.c`):
+
+| Symbol | Bedeutung |
+|---|---|
+| `_estack` und `_stack_top` | Ende des RAMs = Start des Stacks (`0x2000_0000` + 20 KiB). `_estack` steht in der Vektortabelle als Wort 0. |
+| `_sidata` | Startwerte von `.data` **im Flash** (`LOADADDR(.data)`) |
+| `_sdata` / `_edata` | Anfang / Ende von `.data` **im RAM** |
+| `_sbss` / `_ebss` | Anfang / Ende von `.bss` im RAM |
+| `_end` / `_heap_start` | Ende der festen Segmente = Anfang des Heaps |
+| `_heap_end` / `_stack_limit` | Obergrenze des Heaps = untere Grenze der Stack-Reserve (`_stack_top - _Min_Stack_Size`) |
+| `_Min_Stack_Size` | `0x800` = 2 KiB reservierter Stack |
 
 > **Wichtige Besonderheit bei Linker-Symbolen:** Ein Linker-Symbol ist **keine Variable mit Inhalt**, sondern nur ein **Name für eine Adresse**. In GDB bedeutet deshalb `print &_sdata` „die Adresse", während `print _sdata` unsinnigen Inhalt liefern würde. Schreiben Sie immer das `&`!
 
@@ -604,11 +669,13 @@ arm-none-eabi-nm -n $ELF | grep -i -E "sidata|sdata|edata|sbss|ebss|stack|heap"
 
 ### 5.3 Den Reset-Handler im Quelltext und in Maschinencode lesen
 
-Öffnen Sie `src/startup_stm32f103rb.c` und suchen Sie die Funktion für den Reset. Beantworten Sie:
+Öffnen Sie `src/startup_stm32f103rb.c` und lesen Sie `Reset_Handler`. Beantworten Sie:
 
-- Wie heißt sie?
-- Welche Schleifen enthält sie, und welche Linker-Symbole benutzen sie?
-- Was wird zuletzt aufgerufen?
+- Welche zwei `while`-Schleifen enthält die Funktion, und welche Linker-Symbole benutzen sie? Was kopiert die erste, was füllt die zweite?
+- Warum werden `uint32_t *` (Wörter) und nicht Bytes kopiert? Was garantiert das `. = ALIGN(4);` im Linker-Script dafür?
+- Was ruft `__libc_init_array()` auf, und warum steht dieser Aufruf **nach** dem Kopieren/Nullen?
+- Was passiert, wenn `main` zurückkehrt?
+- Was ist `Default_Handler`, und was haben all die `*_IRQHandler` mit ihm zu tun (`weak`, `alias`)? Was passiert, wenn ein Interrupt auftritt, für den es keinen eigenen Handler gibt?
 
 Dann in GDB:
 
@@ -620,35 +687,53 @@ Dann in GDB:
 |---|---|
 | `disassemble <funktion>` | Zeigt den Maschinencode (Assembler) der Funktion. Der Pfeil `=>` markiert die aktuelle Instruktion. Mit `disassemble /s` wird der Quelltext zwischengeschoben. Kurzform: `disas`. |
 
-(Falls die Funktion anders heißt, benutzen Sie den Namen, den `info symbol $pc` direkt nach dem Verbinden meldet.)
+(Probieren Sie auch `info symbol $pc` direkt nach dem Verbinden: Es nennt `Reset_Handler`.)
 
 ### 5.4 Experiment: Beobachten, wie `.data` und `.bss` initialisiert werden
 
 Wir halten die CPU **ganz am Anfang** an – bevor der Startup-Code seine Arbeit getan hat – und beobachten ihn dabei.
 
-1. Setzen Sie die Maschine auf den Anfang zurück:
+**Vorbereitung:** Die Variablen stehen im anonymen Namespace und der Startup-Code ist C-Code. Deshalb brauchen wir hier die vollen Namen (siehe Teil 3.4). Damit Sie nicht ständig die langen Namen tippen müssen, legen wir **GDB-eigene Variablen** an. Sie beginnen mit `$` und leben nur in GDB, nicht auf dem Target:
+
+```
+(gdb) set language c++
+(gdb) info variables g_
+(gdb) set $pdata = &'(anonymous namespace)::g_data_counter'
+(gdb) set $pbss  = &'(anonymous namespace)::g_bss_counter'
+(gdb) print $pdata
+```
+
+| Befehl | Was genau passiert |
+|---|---|
+| `info variables g_` | Listet alle Variablen, deren Name `g_` enthält, mit ihren vollständigen Namen. |
+| `set $pdata = &'...'` | Speichert die **Adresse** der Variable in der GDB-Variable `$pdata` (ein Zeiger). `*$pdata` ist dann der Wert, `$pdata` die Adresse. |
+
+**Ablauf:**
+
+1. Setzen Sie die Maschine auf den Anfang zurück. (Wenn Sie gerade erst verbunden haben und das Programm noch nicht gestartet ist, können Sie diesen Schritt überspringen.)
 
    ```
    (gdb) monitor machine Reset
    (gdb) flushregs
    (gdb) info registers sp pc
+   (gdb) info symbol $pc
    ```
 
 2. **Vorher-Zustand** festhalten und den RAM absichtlich „vergiften":
 
    ```
-   (gdb) x/wx &g_data_counter
-   (gdb) x/wx &g_bss_counter
-   (gdb) set var g_bss_counter = 0xDEADBEEF
-   (gdb) x/wx &g_bss_counter
+   (gdb) x/wx $pdata
+   (gdb) x/wx $pbss
+   (gdb) set var *$pbss = 0xDEADBEEF
+   (gdb) x/wx $pbss
    ```
 
-   Die Variable `g_bss_counter` enthält jetzt künstlichen Müll – so wie ein frisch eingeschaltetes RAM.
+   Die Variable `g_bss_counter` enthält jetzt künstlichen Müll – so wie ein frisch eingeschaltetes RAM. (Der Wert von `g_data_counter` ist jetzt vermutlich noch `0`.)
 
 3. **Wer schreibt in `g_data_counter`?** Setzen Sie einen Watchpoint und lassen Sie die CPU laufen:
 
    ```
-   (gdb) watch g_data_counter
+   (gdb) watch *$pdata
    (gdb) continue
    ```
 
@@ -658,7 +743,7 @@ Wir halten die CPU **ganz am Anfang** an – bevor der Startup-Code seine Arbeit
    (gdb) info symbol $pc
    (gdb) x/i $pc
    (gdb) bt
-   (gdb) print g_data_counter
+   (gdb) print/x *$pdata
    ```
 
    > **Falls Ihre Renode-Version keine Watchpoints unterstützt:** Setzen Sie stattdessen `tbreak main`, lassen Sie das Programm mit `continue` bis dorthin laufen und vergleichen Sie die Werte vorher/nachher.
@@ -669,16 +754,19 @@ Wir halten die CPU **ganz am Anfang** an – bevor der Startup-Code seine Arbeit
    (gdb) delete
    (gdb) tbreak main
    (gdb) continue
-   (gdb) print g_data_counter
-   (gdb) print g_bss_counter
+   (gdb) print/x *$pdata
+   (gdb) print/x *$pbss
    ```
+
+   Erwartung: `g_data_counter` ist `0x12345678` und `g_bss_counter` ist `0`. (Der Haltepunkt liegt vor der ersten Zeile von `main`, die beide Zähler um eins erhöht.)
 
 **Fragen:**
 
-- **5.1** Welchen Wert hatte `g_data_counter` direkt nach dem Reset und welchen bei `main`? Woher stammt der Startwert?
+- **5.1** Welchen Wert hatte `g_data_counter` direkt nach dem Reset und welchen bei `main`? Woher stammt der Startwert `0x12345678`?
 - **5.2** Welchen Wert hat `g_bss_counter` jetzt, obwohl Sie `0xDEADBEEF` hineingeschrieben haben? Wer hat ihn genullt?
-- **5.3** In welcher Funktion hielt der Watchpoint an? Passt das zu Ihrer Erwartung?
-- **5.4** Wie viele Instruktionen hat der Startup-Code etwa gebraucht, bis `main` erreicht war? (Tipp: Nicht zählen, sondern anhand des Quelltextes abschätzen.)
+- **5.3** In welcher Funktion hielt der Watchpoint an? Passt das zu Ihrer Erwartung? Welcher Quelltextzeile in `Reset_Handler` entspricht das?
+- **5.4** Wie viele Wörter kopiert die erste Schleife (siehe Teil 5.2: `_edata - _sdata`)? Warum ist das so wenig?
+- **5.5** Welche der in `startup_stm32f103rb.c` vorbereiteten Handler überschreibt `main.cpp` mit einer eigenen Funktion? (Tipp: Suchen Sie `extern "C"` in `main.cpp`.)
 
 ---
 
@@ -688,11 +776,9 @@ Wir halten die CPU **ganz am Anfang** an – bevor der Startup-Code seine Arbeit
 
 Damit Sie den Stack **nachmessen** können, bauen Sie in `src/main.cpp` eine kleine Hilfsfunktion ein. Sie ruft sich selbst auf (Rekursion) und merkt sich in jeder Ebene die Adresse einer lokalen Variablen.
 
-Oben in `main.cpp` (bei den anderen Includes und globalen Variablen):
+Fügen Sie in `src/main.cpp` **nach den `#include`-Zeilen und vor `namespace {`** ein (`<cstdint>` ist dort schon eingebunden):
 
 ```cpp
-#include <cstdint>
-
 // Hier merkt sich jede Rekursionsebene die Adresse ihrer lokalen Variable.
 // Globale Variable ohne Initialwert -> landet in .bss
 volatile std::uintptr_t g_stack_probe[6];
@@ -717,11 +803,13 @@ __attribute__((noinline)) int stackDemo(int depth, int maxDepth)
 }
 ```
 
-In `main()` vor der Endlosschleife (Blink-Schleife) einfügen:
+In `main()` direkt nach `heap_demo();` (vor `while (true)`) einfügen:
 
 ```cpp
 g_stack_result = stackDemo(0, 5);
 ```
+
+> **Warum vor `namespace {`?** Alles im anonymen Namespace hat internal linkage und bekommt in GDB einen langen Namen. Außerhalb des Namespace sind unsere Hilfsvariablen normale globale Symbole mit kurzen Namen (`g_stack_probe`, `stackDemo`) und in GDB überall sichtbar.
 
 Neu bauen:
 
@@ -729,9 +817,24 @@ Neu bauen:
 cmake --build --preset debug
 ```
 
-> **Wichtig:** Renode muss die **neue** ELF-Datei laden. Beenden Sie Renode (`quit`) und starten Sie es neu (Teil 2.2). Danach in GDB neu verbinden. Wenn Sie GDB offen lassen, mit `file build/debug/stm32f103rb-app.elf` die Symbole neu einlesen.
+> **Wichtig:** Renode muss die **neue** ELF-Datei laden. Beenden Sie Renode (`quit`) und starten Sie es neu (Teil 2.2). Danach in GDB neu verbinden. Wenn Sie GDB offen lassen, mit `file build/debug/stm32f103rb-app` die Symbole neu einlesen.
 
 ### 6.2 Den Stack beim Aufruf beobachten
+
+**Vorübung:** `main.cpp` enthält schon eine Stack-Variable: `stack_probe` in `print_memory_layout()`.
+
+```
+(gdb) break print_memory_layout
+(gdb) continue
+(gdb) next
+(gdb) print &stack_probe
+(gdb) print/x $sp
+(gdb) info frame
+```
+
+Liegt `&stack_probe` in der Nähe von `$sp`? Und in der Nähe von `_stack_top` (`0x20005000`)? Warum ist der Wert `0xA5A5A5A5` nicht in `.data` gelandet, obwohl er initialisiert wird?
+
+**Hauptteil:**
 
 ```
 (gdb) target remote localhost:3333
@@ -778,7 +881,7 @@ Tragen Sie die Werte in diese Tabelle ein:
 
 - **6.1** Werden die Adressen mit jeder Ebene **größer oder kleiner**? Was sagt das über die Wachstumsrichtung des Stacks?
 - **6.2** Wie groß ist ein Stack-Frame von `stackDemo` (die Differenz)? Ist der Wert durch 8 teilbar? (Hintergrund: Die ARM-Aufrufkonvention verlangt an Funktionsgrenzen einen auf **8 Byte ausgerichteten** Stack.)
-- **6.3** Wie viele Bytes Stack verbrauchen sechs Rekursionsebenen? Wie viele Ebenen würden in die gesamten 20 KiB RAM passen (theoretisch, ohne `.data`/`.bss`)?
+- **6.3** Wie viele Bytes Stack verbrauchen sechs Rekursionsebenen? Wie viele Ebenen würden in die 2 KiB passen, die das Linker-Script mit `_Min_Stack_Size` für den Stack reserviert?
 
 ### 6.3 Einen Stack-Frame zerlegen
 
@@ -857,7 +960,7 @@ Der Stack beginnt bei `_stack_top`. Wie viel ist schon belegt, wenn Sie in `main
    g_stack_result = stackDemo(0, 2000);
    ```
 
-2. Neu bauen, Renode neu starten, GDB neu verbinden.
+2. Neu bauen, Renode neu starten, GDB neu verbinden. (Hintergrund: Das Linker-Script reserviert nur `_Min_Stack_Size = 0x800`, also 2 KiB. Das ist eine **Absprache mit dem Heap**, keine Hardware-Grenze: Nichts stoppt den Stack bei `_stack_limit`.)
 3. Setzen Sie vorher einen Watchpoint auf eine **eigentlich unbeteiligte** Variable und beobachten Sie, wer sie überschreibt:
 
    ```
@@ -879,47 +982,75 @@ Stellen Sie danach den Wert in `main()` wieder auf `5` zurück.
 
 ## Teil 7: Der Heap und `_sbrk`
 
-### 7.1 Eine Speicheranforderung auslösen
+### 7.1 Die Firmware fordert schon Heap an
 
-Fügen Sie in `main.cpp` einen kleinen `malloc`-Aufruf ein (bei den Includes `#include <cstdlib>`):
+`heap_demo()` in `main.cpp` ruft direkt `_sbrk(64)` auf. Lesen Sie `src/syscalls.c` und beantworten Sie vorab:
 
-```cpp
-volatile void* g_heap_ptr;   // landet in .bss
-
-// in main(), vor der Endlosschleife:
-g_heap_ptr = std::malloc(32);
-```
-
-(Falls im Projekt bereits die Demo-Allokation per `_sbrk(64)` existiert, können Sie diese ebenfalls beobachten.)
+- Was gibt `_sbrk` beim allerersten Aufruf zurück?
+- In welchen Fällen gibt `_sbrk` `(void*)-1` zurück?
+- Wo liegt die Variable `current_heap_end` – im Stack, im Heap, in `.data` oder in `.bss`? (Tipp: letzte Aufgabe, `static` in einer Funktion, und der Startwert `0`.)
 
 ### 7.2 `_sbrk` im Debugger beobachten
 
 ```
 (gdb) break _sbrk
 (gdb) continue
-(gdb) info registers r0
 (gdb) bt
+(gdb) print increment
+(gdb) next
+(gdb) next
+(gdb) info locals
 (gdb) finish
 (gdb) print/x &_heap_start
 (gdb) print/x &_heap_end
-(gdb) print/x g_heap_ptr
 ```
 
 | Beobachtung | Erklärung |
 |---|---|
-| `r0` beim Eintritt in `_sbrk` | Nach der ARM-Aufrufkonvention steht das **erste Argument in `r0`**: also `increment`, die Zahl der angeforderten Bytes. |
-| `bt` | Zeigt, dass `_sbrk` von `malloc` (aus der newlib) aufgerufen wurde – nicht von Ihrem Code. |
-| `finish` | Läuft bis zum Rücksprung und zeigt den **Rückgabewert** (Rückgabewerte stehen in `r0`): die **alte** Heap-Grenze. |
-| `&_heap_start`, `&_heap_end` | Beginn und Obergrenze des Heaps. |
+| `bt` | Zeigt, dass `_sbrk` von `heap_demo` aufgerufen wurde. |
+| `print increment` | Das Argument (hier `64`). Nach der ARM-Aufrufkonvention steht es beim Aufruf in `r0`; der Debug-Build speichert es danach im Stack-Frame. |
+| `next` (mehrfach) | Führt die Zeilen von `_sbrk` aus. Beobachten Sie mit `info locals` die statische Variable `current_heap_end` und `previous_heap_end`. Was passiert mit `current_heap_end` beim ersten Aufruf? |
+| `finish` | Läuft bis zum Rücksprung und zeigt den **Rückgabewert** (steht in `r0`): die **alte** Heap-Grenze. |
 
 **Fragen:**
 
-- **7.1** Wie viele Bytes fordert `_sbrk` an – genau 32, oder mehr? Warum fragt `malloc` die Hardware vermutlich in größeren Blöcken, als Sie wollten?
-- **7.2** Liegt `g_heap_ptr` in der Nähe von `_heap_start`? Liegt der Zeiger **im Heap**, die Variable `g_heap_ptr` **selbst** aber in `.bss`? Belegen Sie das mit `info symbol &g_heap_ptr`.
-- **7.3** Wie viel Heap steht insgesamt zur Verfügung (`_heap_end - _heap_start`)? Das ist zugleich der Abstand zwischen dem Ende der festen Segmente und dem reservierten Stack.
-- **7.4** Der Heap wächst nach **oben**, der Stack nach **unten**. Was passiert, wenn sie sich treffen? Wie versucht `_sbrk` das zu verhindern (README: Grenze `_heap_end`)?
+- **7.1** Welcher Wert kommt von `_sbrk` zurück? Vergleichen Sie mit `&_heap_start`.
+- **7.2** Um wie viel Bytes ist `current_heap_end` danach gewachsen?
+- **7.3** Wie viel Heap steht insgesamt zur Verfügung (`_heap_end - _heap_start`)? (Kontrolle: `_heap_end` muss `0x20004800` sein. Die Firmware gibt diese Zahl auch als „heap capacity bytes" per UART aus.)
+- **7.4** In welchem Segment liegt `current_heap_end`? Belegen Sie es mit `info address current_heap_end` oder `nm -C`.
+- **7.5** Der Heap wächst nach **oben**, der Stack nach **unten**. Was passiert, wenn sie sich treffen? Wie versucht `_sbrk` das zu verhindern (Vergleich mit `_heap_end`)? Beachten Sie: Der Stack selbst wird von `_sbrk` **nicht** gebremst!
 
-### 7.3 Unterschied Stack und Heap – Tabelle ausfüllen
+**Experiment: Heap-Erschöpfung.** Starten Sie neu (Renode `quit`, neu starten; GDB neu verbinden) und halten Sie wieder in `_sbrk` an:
+
+```
+(gdb) break _sbrk
+(gdb) continue
+(gdb) set var increment = 0x10000
+(gdb) finish
+```
+
+Was liefert `_sbrk` jetzt zurück? Warum? (Tipp: `0x10000` sind 64 KiB, das RAM hat 20 KiB.) Was meldet die Firmware im Anschluss (UART-Text `heap alloc failed`)?
+
+> Warum `set var increment` und nicht `set $r0`? Im Debug-Build hat der Compiler das Argument schon in den Stack-Frame kopiert; die Funktion liest es dort, nicht mehr aus `r0`.
+
+### 7.3 Erweiterung: `malloc` statt `_sbrk` direkt
+
+Normalerweise ruft man `_sbrk` nicht selbst auf. Fügen Sie vor `namespace {` ein:
+
+```cpp
+#include <cstdlib>
+volatile void* g_heap_ptr;   // landet in .bss
+```
+
+und in `main()` nach `heap_demo();`:
+
+```cpp
+g_heap_ptr = std::malloc(32);
+```
+
+Setzen Sie wieder `break _sbrk` und schauen Sie mit `bt`, **wer** jetzt aufruft. Fordert `malloc` genau 32 Bytes an – oder mehr? Warum fragt `malloc` die Hardware vermutlich in größeren Blöcken, als Sie wollten? Liegt `g_heap_ptr` im Heap, oder liegt nur der Zeiger *darauf* in `.bss`?
+
+### 7.4 Unterschied Stack und Heap – Tabelle ausfüllen
 
 | Eigenschaft | Stack | Heap |
 |---|---|---|
@@ -991,13 +1122,13 @@ Globale Objekte in C++ mit Konstruktor werden **vor `main`** konstruiert. Das er
    ```
 
 2. Setzen Sie `tbreak main` und prüfen Sie `print g_ctor_ran` bei `main`.
-3. Setzen Sie stattdessen einen Breakpoint auf `Probe::Probe` und sehen Sie sich mit `bt` an, **wer** den Konstruktor aufruft (Tipp: `__libc_init_array` oder ähnlich).
+3. Setzen Sie stattdessen einen Breakpoint auf `Probe::Probe` und sehen Sie sich mit `bt` an, **wer** den Konstruktor aufruft (Tipp: `__libc_init_array`, siehe `Reset_Handler`).
 
 **Fragen:** Wo steht die Liste der aufzurufenden Konstruktoren (Abschnitte `.init_array` / `.preinit_array`)? Was würde passieren, wenn der Startup-Code diesen Schritt vergäße?
 
-### Bonus 2: Ein HardFault und der Exception-Stack-Frame
+### Bonus 2: Interrupts und der Exception-Stack-Frame
 
-Wenn ein Interrupt oder eine Exception auftritt, legt die **Hardware selbst** acht Wörter auf den Stack:
+`main.cpp` richtet SysTick ein (1 kHz) und definiert `SysTick_Handler`. Er überschreibt damit den schwachen Standard-Handler aus dem Startup-Code. Wenn ein Interrupt auftritt, legt die **Hardware selbst** acht Wörter auf den Stack:
 
 ```
 SP+0x00  r0
@@ -1006,24 +1137,36 @@ SP+0x08  r2
 SP+0x0C  r3
 SP+0x10  r12
 SP+0x14  lr   (Rücksprungadresse vor der Exception)
-SP+0x18  pc   (die Instruktion, bei der es passiert ist)
+SP+0x18  pc   (die Instruktion, die unterbrochen wurde)
 SP+0x1C  xpsr
 ```
 
-1. Fügen Sie in `main()` einmalig `__builtin_trap();` ein (erzeugt eine ungültige Instruktion).
-2. Finden Sie in `startup_stm32f103rb.c` oder mit `nm` den Namen des HardFault-Handlers und setzen Sie dort einen Breakpoint.
-3. Lassen Sie das Programm laufen. Halt der Breakpoint? Dann:
+1. Setzen Sie einen Breakpoint und lassen Sie das Programm laufen:
 
    ```
+   (gdb) break SysTick_Handler
+   (gdb) continue
    (gdb) bt
    (gdb) x/8wx $sp
-   (gdb) info registers lr
+   (gdb) info registers lr pc sp
    (gdb) info symbol <gespeicherter pc>
    ```
 
-4. Der Wert in `lr` ist hier **keine** Funktionsadresse, sondern ein Sonderwert `EXC_RETURN` (z. B. `0xFFFFFFF9`). Recherchieren Sie, was er bedeutet.
+2. Der Wert in `lr` ist hier **keine** Funktionsadresse, sondern ein Sonderwert `EXC_RETURN` (hier vermutlich `0xFFFFFFF9`). Recherchieren Sie, was er bedeutet. Der Rücksprung geschieht mit `bx lr`, und die Hardware holt die acht Wörter wieder vom Stack.
+3. In welcher Funktion wurde die CPU unterbrochen? Warum ist das vermutlich meistens `delay_ms`?
+4. Beobachten Sie `system_millis`:
 
-> Falls bei Ihrer Renode-Konfiguration kein HardFault auftritt (Renode behandelt manche Fehler nur mit einer Log-Meldung), prüfen Sie die Ausgabe im Renode-Terminal.
+   ```
+   (gdb) delete
+   (gdb) watch '(anonymous namespace)::system_millis'
+   (gdb) continue
+   ```
+
+   Wer ändert die Variable? Wie oft pro Sekunde?
+
+**Fragen:** Wie viel zusätzlichen Stack braucht ein Interrupt mindestens (Exception-Frame plus Frame des Handlers)? Warum muss man diese Reserve bei der Stack-Planung berücksichtigen?
+
+**Zusatz: HardFault.** Fügen Sie in `main()` einmalig `__builtin_trap();` ein (erzeugt eine ungültige Instruktion) und setzen Sie einen Breakpoint auf `HardFault_Handler`. Im Startup-Code ist er per `weak, alias` nur ein anderer Name für `Default_Handler` (eine Endlosschleife), `bt` und `info symbol $pc` zeigen also `Default_Handler`. Untersuchen Sie `x/8wx $sp` wie oben. (Falls bei Ihrer Renode-Konfiguration kein HardFault auftritt, prüfen Sie die Ausgabe im Renode-Terminal.)
 
 ### Bonus 3: Debug- gegen Release-Build
 
@@ -1057,7 +1200,7 @@ continue
 Starten Sie mit:
 
 ```sh
-gdb-multiarch -batch -x gdb/stack.gdb build/debug/stm32f103rb-app.elf
+gdb-multiarch -batch -x gdb/stack.gdb build/debug/stm32f103rb-app
 ```
 
 Was bewirkt `commands ... end`? (Hinweis: Eine Liste von GDB-Befehlen, die automatisch bei jedem Treffer des Breakpoints ausgeführt wird; `silent` unterdrückt die übliche Halt-Meldung.)
@@ -1078,6 +1221,26 @@ Ein klassisches Verfahren: Der Startup-Code (oder Sie selbst in `main`) füllt d
 
 2. Lassen Sie `stackDemo(0, 5)` laufen und suchen Sie mit `x/64wx` die Grenze zwischen Muster und Veränderungen.
 3. Wie viele Bytes hat der Stack **maximal** benutzt?
+
+### Bonus 6: `.rodata` in einen eigenen Abschnitt legen
+
+Im Linker-Script steckt `*(.rodata*)` im Abschnitt `.text`. Trennen Sie das:
+
+1. Entfernen Sie `*(.rodata*)` aus dem `.text`-Block in `ld/stm32f103rb.ld`.
+2. Fügen Sie **direkt nach** dem `.text`-Block (vor `.ARM.extab`) einen neuen Block ein:
+
+   ```
+   .rodata :
+   {
+     . = ALIGN(4);
+     *(.rodata*)
+     . = ALIGN(4);
+   } > FLASH
+   ```
+
+3. Neu bauen und prüfen: `arm-none-eabi-size --format=sysv $ELF` zeigt jetzt einen Abschnitt `.rodata`. `info symbol` für den Banner-Text meldet nun `.rodata`.
+
+**Fragen:** Hat sich die Gesamtgröße geändert? Läuft das Programm unverändert in Renode? Welche Abschnitte haben VMA = LMA, und welcher nicht?
 
 ---
 
@@ -1117,8 +1280,10 @@ Ein klassisches Verfahren: Der Startup-Code (oder Sie selbst in `main`) füllt d
 |---|---|
 | `Connection refused` in GDB | Renode läuft nicht oder hat den GDB-Server nicht gestartet (`machine StartGdbServer 3333` im Script?). |
 | `Address already in use` | Port 3333 ist belegt (altes Renode, OpenOCD). Alte Prozesse beenden. |
-| `No symbol "xyz" in current context` | Falscher Name oder GDB wurde ohne ELF-Datei gestartet. Namen mit `nm` prüfen; `file <elf>` einlesen. |
+| `No symbol "g_data_counter" in current context` | Die Variable steht im **anonymen Namespace** von `main.cpp` und ist nur dort sichtbar. In `main` anhalten oder den vollen Namen verwenden: `'(anonymous namespace)::g_data_counter'` (mit `set language c++`). Namen finden: `info variables g_`. |
+| `No symbol "xyz" in current context` (anderer Name) | Falscher Name oder GDB wurde ohne ELF-Datei gestartet. Namen mit `nm -C` prüfen. |
 | `<optimized out>` | Release-Build oder Variable im Register. Für diese Aufgabe den Debug-Build verwenden. |
+| Im Renode-Terminal erscheint kein UART-Fenster | Normal bei `--disable-xwt` (das Script ruft `showAnalyzer` auf). Die Aufgabe braucht es nicht. |
 | Alte Werte nach Neubau | Renode läuft noch mit der alten ELF-Datei: Renode neu starten. |
 | `print _sdata` zeigt Unsinn | Linker-Symbol! Immer `print &_sdata` benutzen. |
 | Programm läuft „einfach durch" | Nach dem Neustart von GDB ist die CPU evtl. noch am Laufen: mit `Ctrl+C` anhalten oder `monitor machine Reset`. |
