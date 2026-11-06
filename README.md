@@ -48,6 +48,23 @@ Zusätzlich in VS Code:
 
 ---
 
+## Schnellstart für Einsteiger (mit oder ohne Hardware)
+
+Wenn du neu im STM32-Umfeld bist, folge genau diesen Schritten:
+
+1. **Debug-Build erzeugen**
+   ```bash
+   cmake --preset debug
+   cmake --build --preset debug
+   ```
+2. **Entscheiden, wie du starten willst**
+   - **Mit echter Hardware** → Abschnitt **Flashen** + **Debuggen in VS Code**
+   - **Ohne Hardware (Emulation)** → Abschnitt **Emulation mit Renode**
+3. **UART-Ausgabe prüfen** (egal ob Board oder Renode), damit du sofort siehst,
+   dass Firmware und Toolchain korrekt laufen.
+
+---
+
 ## Build
 
 ### Debug
@@ -93,6 +110,30 @@ Das Flash-Target nutzt OpenOCD mit `board/st_nucleo_f103rb.cfg`.
 1. Debug-Build ausführen.
 2. In Run & Debug die Konfiguration **"STM32F103RB Debug (OpenOCD)"** wählen.
 3. Starten, Breakpoints setzen, `main` wird als Entry genutzt.
+
+---
+
+## Emulation mit Renode (ohne Board)
+
+Wenn du noch kein Nucleo-Board angeschlossen hast, kannst du dieselbe Firmware
+im Emulator starten:
+
+1. Debug-Build ausführen:
+   ```bash
+   cmake --preset debug
+   cmake --build --preset debug
+   ```
+2. Renode mit dem Projektskript starten:
+   ```bash
+   renode --disable-xwt --console renode/nucleo.resc
+   ```
+3. Im Renode-Monitor `start` eingeben.
+4. Optional in VS Code die Konfiguration **"STM32F103RB Debug (Renode)"** nutzen.
+
+Die UART-Ausgabe erscheint über `showAnalyzer sysbus.usart2`.
+
+Eine ausführliche Schritt-für-Schritt-Anleitung findest du in
+[doc/renode.md](/workspaces/tea24-stm32/doc/renode.md).
 
 ---
 

@@ -23,27 +23,22 @@ emuliert QEMU upstream nicht.
 
 ---
 
-## 2. Renode im Devcontainer installieren
+## 2. Voraussetzungen (ohne Docker-Setup)
 
-Kein Docker-in-Docker nötig: Renode wird direkt im Devcontainer installiert,
-am besten in der `Dockerfile`, damit es beim Image-Build erledigt ist.
+Diese Anleitung setzt voraus, dass Renode in deiner Umgebung bereits
+installiert ist. Prüfe das kurz:
 
-```dockerfile
-ARG RENODE_VERSION=<VERSION>
-RUN wget -q https://github.com/renode/renode/releases/download/v${RENODE_VERSION}/renode-${RENODE_VERSION}.linux-portable.tar.gz \
- && tar xf renode-${RENODE_VERSION}.linux-portable.tar.gz -C /opt \
- && mv /opt/renode_${RENODE_VERSION}_portable /opt/renode \
- && ln -s /opt/renode/renode /usr/local/bin/renode \
- && rm renode-*.tar.gz
+```bash
+renode --version
 ```
 
-Hinweise:
+Optional für CLI-Debugging:
 
-- `<VERSION>` von der Releases-Seite (`github.com/renode/renode/releases`) eintragen.
-- Nach dem Build mit `renode --version` prüfen, ob Pfad und Ordnername des
-  entpackten Tarballs stimmen (können je Release abweichen).
-- Alternative: `.deb`-Paket mit `apt install ./renode_<VERSION>_amd64.deb`.
-- Für `renode-test` zusätzlich: `pip install -r /opt/renode/tests/requirements.txt`.
+```bash
+gdb-multiarch --version
+```
+
+Wenn beide Befehle laufen, kannst du direkt mit der Emulation starten.
 
 ---
 
@@ -68,13 +63,19 @@ wenn du von außerhalb des Containers verbindest:
 
 ## 4. Renode-Skript für das Nucleo-F103RB
 
-Datei z. B. `renode/nucleo.resc` im Projekt:
+Im Projekt ist bereits ein passendes Skript vorhanden:
+[renode/nucleo.resc](/workspaces/tea24-stm32/renode/nucleo.resc)
+
+Inhalt:
 
 ```
 :name: Nucleo F103RB
 using sysbus
 mach create "nucleo"
-machine LoadPlatformDescription @platforms/boards/nucleo_f103rb.repl
+machine LoadPlatformDescription @platforms/cpus/stm32f103.repl
+machine LoadPlatformDescriptionFromString "button: Miscellaneous.Button @ gpioPortC 13 { IRQ -> gpioPortC@13 }"
+machine LoadPlatformDescriptionFromString "led: Miscellaneous.LED @ gpioPortA 5"
+machine LoadPlatformDescriptionFromString "gpioPortA: { 5 -> led@0 }"
 sysbus LoadELF @build/debug/stm32f103rb-app.elf
 
 showAnalyzer sysbus.usart2
@@ -82,9 +83,8 @@ machine StartGdbServer 3334
 ```
 
 - Den ELF-Dateinamen nach dem Build unter `build/debug/` prüfen.
-- Gibt es `nucleo_f103rb.repl` in deiner Renode-Version nicht, nimm
-  `platforms/cpus/stm32f103.repl`. Vorhandene Plattformen findest du im
-  Renode-Ordner unter `platforms/boards/`.
+- Vorhandene Plattformen findest du im Renode-Ordner unter
+  `platforms/boards/` und `platforms/cpus/`.
 - Start: `renode --disable-xwt --console renode/nucleo.resc`, dann im
   Renode-Monitor `start`.
 
