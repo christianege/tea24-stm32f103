@@ -6,8 +6,9 @@
       "type": "cortex-debug",
       "request": "launch",
       "servertype": "external",
-      "gdbTarget": "localhost:3334",
-      "executable": "${workspaceFolder}/build/debug/stm32f103rb-app.elf",
+      "gdbTarget": "localhost:3333",
+      "gdbPath": "/usr/bin/gdb-multiarch",
+      "executable": "${workspaceFolder}/build/debug/stm32f103rb-app",
       "cwd": "${workspaceFolder}",
       "runToEntryPoint": "main"
     }
