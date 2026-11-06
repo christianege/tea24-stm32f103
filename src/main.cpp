@@ -29,6 +29,20 @@ uint8_t g_bss_buffer[32];
 /* .rodata: constants in flash. */
 const char kRodataBanner[] = "Memory layout demo (.data/.bss/.rodata/stack/heap)\r\n";
 
+/*
+ * `volatile` tells the compiler that a variable may change in a way it cannot see in the current code, 
+ * so it must perform each read and write rather than assume the value stays the same.
+ * 
+ * In `main.cpp`, `system_millis` is declared `volatile` because it is updated by the SysTick interrupt 
+ * in `SysTick_Handler` and read by the main program in `delay_ms`. Without `volatile`, the compiler might 
+ * optimize the loop in `delay_ms` by reading the counter once and reusing that value—so it might never 
+ * notice the interrupt’s updates.
+ * 
+ * `volatile` is **not** a general thread-safety tool: it doesn’t make operations atomic or protect against 
+ * simultaneous access. Here it makes the interrupt-updated counter visible to the polling loop; 
+ * it doesn’t provide locking.
+ * 
+**/
 volatile uint32_t system_millis = 0;
 
 extern "C" uint8_t _sdata;
@@ -41,6 +55,10 @@ extern "C" uint8_t _stack_top;
 extern "C" uint8_t _stack_limit;
 extern "C" void *_sbrk(ptrdiff_t increment);
 
+/* 
+ * This overwrites the weak Symbol in the Interrupt vector table
+ * void SysTick_Handler(void) __attribute__((weak, alias("Default_Handler")));
+**/
 extern "C" void SysTick_Handler(void)
 {
     system_millis = system_millis + 1;
